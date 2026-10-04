@@ -22,7 +22,7 @@ repeated-access experiment, not a guaranteed cold-cache measurement.
    with status 1 before measured trials begin.
 5. Run 20 trials. In each trial, read `std::chrono::steady_clock` immediately
    before and after the scan function call. Store the duration and returned
-   checksum after the finish timestamp.
+   checksum in the result vectors after the finish timestamp.
 6. Validate all measured checksums. A mismatch invalidates the entire run: report
    the failing trial and expected/actual values, return status 1, and omit the
    performance summary. Do not silently discard a failed trial.
@@ -37,7 +37,9 @@ standard-library implementations; record the toolchain for cross-machine work.
 
 The timed region contains the scan function call, including call/return overhead
 that remains after optimisation. Clock-reading overhead also affects the observed
-interval. Allocation, random generation, reference-checksum generation,
+interval. Compiler-generated bookkeeping, such as saving the returned checksum
+to the stack before the finish clock call, can also fall inside the interval.
+Allocation, random generation, reference-checksum generation,
 result-vector insertion, validation, sorting, and printing are outside it.
 
 Durations are converted to integer nanoseconds. That unit does not imply that the
@@ -45,6 +47,28 @@ clock has one-nanosecond resolution or accuracy. Very short scans can be dominat
 by measurement overhead. A later size sweep must assess whether several scans
 per measurement are needed, and must count all processed elements when
 normalising such measurements.
+
+## Clock-overhead diagnostic
+
+`benchmarks/clock_overhead.cpp` is a separate executable built in Release mode.
+It reserves space for 100,000 durations, then reads `steady_clock::now()` twice
+consecutively per measurement, with no scan between the readings. Duration
+conversion and insertion into the results vector occur after the second reading.
+After all measurements, it sorts the durations and reports their minimum,
+maximum, and median. For an even count, the median averages the two middle
+values using floating-point division. There is no separate warm-up phase.
+
+This measures an approximate empty timing interval, not the exact cost of two
+complete clock calls or all overhead surrounding a scan. Clock resolution can
+produce zero intervals; scheduling and other interruptions can produce outliers.
+Compare typical empty intervals with scan durations from the same environment.
+Do not automatically subtract this baseline from measured scans or infer clock
+resolution from a single sample. Repeat complete runs before drawing conclusions.
+
+No timing threshold is enforced, and this diagnostic is not registered with
+CTest. If later small-input measurements approach the empty-interval baseline,
+consider batching scans, count all processed elements when normalising, and
+verify that repeated work survives optimisation.
 
 ## Statistics and units
 
@@ -77,6 +101,22 @@ Before making performance claims, inspect the optimised program or adopt an
 appropriate benchmark harness and understand its optimisation controls. Record
 whether link-time optimisation is enabled. Do not disable optimisation simply
 to obtain plausible-looking timings: that changes the operation being measured.
+
+### Inspected Release build
+
+On 2026-10-04, an AppleClang 21.0.0.21000334 ARM64 Release build using
+`-O3 -DNDEBUG` without link-time optimisation was inspected. The measured loop
+retained 20 calls to `sequential_scan`, each between two clock calls. The scan
+used vector loads and integer SIMD additions to process eight 64-bit elements
+(64 bytes) per main loop iteration, followed by reduction of the partial sums.
+For the 131,072-element input, this is 16,384 vector-loop iterations per scan.
+Normalisation still uses 131,072 elements, not the assembly-loop iteration count.
+
+This observation applies to the inspected build, not every compiler or future
+configuration. Vectorisation is intended for this optimised sequential scan;
+it does not remove elements from the workload. Recheck the generated code after
+changes to the scan, batching, compiler options, or link-time optimisation.
+Timing overhead and repeat-run stability remain separate checks.
 
 ## Reproducibility record
 

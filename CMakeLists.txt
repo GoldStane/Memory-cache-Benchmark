@@ -6,6 +6,9 @@ add_executable(main benchmarks/main.cpp src/scan.cpp)
 target_include_directories(main PRIVATE src)
 target_compile_features(main PRIVATE cxx_std_17)
 
+add_executable(clock_overhead benchmarks/clock_overhead.cpp)
+target_compile_features(clock_overhead PRIVATE cxx_std_17)
+
 include(CTest)
 
 if(BUILD_TESTING)

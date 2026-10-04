@@ -35,15 +35,15 @@ From the repository root, using a single-configuration generator such as Unix
 Makefiles or Ninja:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build
 ./build/main
 ctest --test-dir build --output-on-failure
 ```
 
 The first command configures the project and creates the build directory. The
-second compiles and links the executable; the third runs it. The final command runs the correctness tests. Use Release builds
-for performance experiments. A Debug build is useful for debugging but is not
+second builds the executables; the third runs the scan benchmark. The final
+command runs the correctness tests. Use Release builds for performance experiments. A Debug build is useful for debugging but is not
 directly comparable to an optimised build.
 
 For multi-configuration generators such as Xcode or Visual Studio, select
@@ -53,12 +53,36 @@ inside the build directory's `Release` subdirectory (with `.exe` on Windows).
 For a clean build check, configure a fresh directory instead of reusing a cache
 from another machine or source location.
 
+## Clock-overhead diagnostic
+
+After building, run the separate diagnostic:
+
+```sh
+./build/clock_overhead
+```
+
+It measures 100,000 pairs of consecutive `steady_clock::now()` calls with no
+scan between them, then reports minimum, maximum, and median empty-interval
+durations in nanoseconds. Compare these with scan durations to assess timing
+overhead. Zero readings can occur, and occasional large readings may reflect
+interruptions. Do not automatically subtract this estimate from scan timings.
+The diagnostic is not a CTest test and has no timing pass/fail threshold.
+
+## Continuous integration
+
+The GitHub Actions workflow builds Release executables and runs CTest on Ubuntu
+with GCC and Clang, and on macOS with Clang. It runs on pushes and pull requests
+targeting `main`. CI checks correctness; it does not enforce performance thresholds
+or run the clock-overhead diagnostic.
+
 ## Source layout
 
-- `CMakeLists.txt`: executable target, source files, header path, and C++17 requirement.
+- `CMakeLists.txt`: executable targets, source files, header path, and C++17 requirements.
 - `src/scan.h`: declaration of the sequential checksum operation.
 - `src/scan.cpp`: implementation of one sequential scan.
 - `benchmarks/main.cpp`: input generation, warm-up, timing, validation, and reporting.
+- `benchmarks/clock_overhead.cpp`: standalone empty timing-interval diagnostic.
+- `.github/workflows/ci.yml`: Linux and macOS build and correctness checks.
 - [docs/methodology.md](docs/methodology.md): measurement procedure and limitations.
 - `tests/scan_test.cpp`: correctness checks for empty, single-element, and multi-element inputs.
 - [LICENSE](LICENSE): MIT licence.
@@ -76,9 +100,9 @@ optimisation caveats, and reproducibility details.
 
 ## Planned next steps
 
-1. Add continuous integration to build and run the existing CTest correctness tests.
+1. Compare repeated runs for stability and record timing-overhead observations.
 2. Express the working-set size explicitly in bytes.
-3. Review optimised code and measurement overhead before extending the experiment.
+3. Reassess timing overhead and generated code when extending the experiment.
 4. Sweep powers-of-two sizes from 4 KiB through 256 MiB.
 5. Report useful read throughput alongside timing and variability.
 6. Export validated measurements to CSV and plot results against working-set size.
